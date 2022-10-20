@@ -37,19 +37,25 @@ createCertificates() {
     # generate the private key and the certificate for the certificate authority (CA); private key with no passphrase (-nodes)
     openssl req -nodes -x509 -newkey rsa:4096 -keyout ca/ca-key.pem -out ca/ca-cert.pem -days 3650  -subj "/C=RO/ST=Bucharest/L=Bucharest/O=Jucosystems/OU=IT Department/CN=Jucosystems Certificate Authority"
 
-    #generate the server private key and server certificate signing request (CSR); private key with no passphrase (-nodes)
-    openssl req  -nodes -newkey rsa:4096 -keyout server/server-key.pem -out server/server.csr -subj "/C=RO/ST=RO/L=Bucharest/O=Client Service/OU=IT Department/CN=client-service.com"
+    # generate the server private key and server certificate signing request (CSR); private key with no passphrase (-nodes)
+    openssl req -nodes -newkey rsa:4096 -keyout server/server-key.pem -out server/server.csr -subj "/C=RO/ST=RO/L=Bucharest/O=Client Service/OU=IT Department/CN=localhost.local"
 
-    #generate the client private key and client certificate signing request (CSR); private key with no passphrase (-nodes)
-    openssl req -nodes -newkey rsa:4096 -keyout client/client-key.pem -out client/client.csr -subj "/C=RO/ST=Bucharest/L=Bucharest/O=Server Service/OU=IT Department/CN=server-service.com"
+    # print the server CSR
+    openssl req -in server/server.csr -noout -text
 
-    #sign the server certificate with the CA
-    openssl x509 -req -days 3650 -in server/server.csr -CA ca/ca-cert.pem -CAkey ca/ca-key.pem -CAcreateserial -extfile server/domains.ext -out server/server-cert.pem
+    # generate the client private key and client certificate signing request (CSR); private key with no passphrase (-nodes)
+    openssl req -nodes -newkey rsa:4096 -keyout client/client-key.pem -out client/client.csr -subj "/C=RO/ST=Bucharest/L=Bucharest/O=Server Service/OU=IT Department/CN=localhost.local"
 
-    #sign the client certificate with the CA
-    openssl x509 -req -days 3650 -in client/client.csr -CA ca/ca-cert.pem -CAkey ca/ca-key.pem -CAcreateserial -extfile client/domains.ext -out client/client-cert.pem
+    # print the client CSR
+    openssl req -in client/client.csr -noout -text
 
-    #add the server private key to the server certificate for the haproxy config
+    # sign the server certificate with the CA
+    openssl x509 -req -sha256 -days 3650 -in server/server.csr -CA ca/ca-cert.pem -CAkey ca/ca-key.pem -CAcreateserial -extfile server/domains.ext -out server/server-cert.pem
+
+    # sign the client certificate with the CA
+    openssl x509 -req -sha256 -days 3650 -in client/client.csr -CA ca/ca-cert.pem -CAkey ca/ca-key.pem -CAcreateserial -extfile client/domains.ext -out client/client-cert.pem
+
+    # add the server private key to the server certificate for the haproxy config
     cat server/server-cert.pem server/server-key.pem > server/server-cert-including-private-key.pem
 
     echo 'Verify the client certificate...'
@@ -61,20 +67,26 @@ createCertificates() {
 
 createClientKeyStoreAndTrustStore() {
 
-    #convert the client cert and secret key into a pkcs12 file (mandatory since keytool cannot just import a cert + private key directly); must set a password because next step fails otherwise
+    # convert the client cert and secret key into a pkcs12 file (mandatory since keytool cannot just import a cert + private key directly); must set a password because next step fails otherwise
     openssl pkcs12 -export -in client/client-cert.pem -inkey client/client-key.pem -out client/client.p12 -name client -CAfile ca/ca-cert.pem -chain -passout pass:secret
 
-    #create a java keystore for the client service from the pkcs12 file; this will contain the client certificate, encrypted client private key, and the certificate authority (because we added the -chain option for the previous command)
+    # create a java keystore for the client service from the pkcs12 file; this will contain the client certificate, encrypted client private key, and the certificate authority (because we added the -chain option for the previous command)
     keytool -importkeystore -deststorepass secret -destkeypass secret -destkeystore client/keystore.jks -srckeystore client/client.p12 -srcstoretype JKS -srcstorepass secret -alias client
 
-    #convert the server cert and secret key into a pkcs12 file (mandatory since keytool cannot just import a cert + private key directly); must set a password because next step fails otherwise
+    keytool -list -v -keystore client/keystore.jks  -storepass secret
+
+    # convert the server cert and secret key into a pkcs12 file (mandatory since keytool cannot just import a cert + private key directly); must set a password because next step fails otherwise
     openssl pkcs12 -export -in server/server-cert.pem -inkey server/server-key.pem -out server/server.p12 -name server -CAfile ca/ca-cert.pem -chain -passout pass:secret
 
-    #create a java keystore for the server service from the pkcs12 file; this will contain the server certificate, encrypted server private key, and the certificate authority (because we added the -chain option for the previous command)
+    # create a java keystore for the server service from the pkcs12 file; this will contain the server certificate, encrypted server private key, and the certificate authority (because we added the -chain option for the previous command)
     keytool -importkeystore -deststorepass secret -destkeypass secret -destkeystore server/keystore.jks -srckeystore server/server.p12 -srcstoretype JKS -srcstorepass secret -alias server
 
-    #create a java truststore and import the certificate authority certificate into it (this will validate any certificates signed by the certificate authority)
+    keytool -list -v -keystore server/keystore.jks -storepass secret
+
+    # create a java truststore and import the certificate authority certificate into it (this will validate any certificates signed by the certificate authority)
     keytool -keystore ca/truststore.jks -importcert -file ca/ca-cert.pem -alias root-ca -storepass secret -noprompt
+
+    keytool -list -v -keystore ca/truststore.jks -storepass secret
 }
 
 createDist() {
@@ -91,6 +103,6 @@ createDist() {
 }
 
 cleanUpExistingCertificatesAndKeystores
-createCertificates
-createClientKeyStoreAndTrustStore
-createDist
+#createCertificates
+#createClientKeyStoreAndTrustStore
+#createDist
